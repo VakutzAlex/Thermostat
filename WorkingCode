@@ -1,0 +1,345 @@
+//libraries
+#include <LiquidCrystal.h>
+#include <Keypad.h>
+#include <DHT.h>
+
+//DHT Sensor
+#define DHTPIN 13 //define the pin where the data will be transmitted
+#define DHTTYPE DHT11 //define the type of dht
+DHT dht(DHTPIN, DHTTYPE); //create a dht object
+
+#define passLength 9 //password length
+
+//Defining LCD
+LiquidCrystal lcd(A0, A1, A2, A3, A4, A5); //lcd pinout 
+
+//Keypad
+const byte r = 4;//rows
+const byte c = 4;//columns
+
+//keymap define the key pressed according to the row and columns just as appears on the keyboard
+char keys[r][c]={
+  {'7', '8', '9', 'A'},
+  {'4', '5', '6', 'B'},
+  {'1', '2', '3', 'C'},
+  {'#', '0', '*', 'D'} 
+};
+
+byte rowP[r] = {9, 8, 7, 6};//row pinout
+byte colP[c] = {5, 4, 3, 2};//column pinout
+
+Keypad customKeypad = Keypad(makeKeymap(keys), rowP, colP, r, c); //initializes an instance of the keypad class 
+
+//variables
+char data[passLength]; //array in which we put the password that will be introduced
+char pass[passLength] = "2035ACDC"; //password
+byte data_count = 0; //index for the passsord build array
+char key; //key from keypad
+int greenLED = 12; //green led pinout
+int redLED = 11; //red led pinout
+int blueLED = 10; //blue led pinout
+int choice = 0; //menu sel var
+float tempC = 0; //temperature in Celsius
+float tempF = 0; //temperature in Fahrenheit
+float hum = 0; //humidity
+float hiC = 0; //heat index Celsius
+float hiF = 0; //heat index Fahrenheit
+bool locked = true; //protected by pass
+
+//screen var
+bool welcome = true; //star screen var
+bool mainScreen = true; //menu selection var
+
+
+//functions
+int checkPass();
+void clearData();
+void readSensorData();
+void startScreen();
+void optionSelect();
+void mainScreenP(int choice);
+void tempHeatInd();
+void printHum();
+void logOut();
+void goBack();
+
+void setup(){
+  Serial.begin(9600);//debugging purposes
+  dht.begin();//setting up the DHT
+
+  lcd.begin(32,2); //seeting up the lcd
+
+  //setting up the diodes
+  pinMode(greenLED, OUTPUT);
+  pinMode(redLED, OUTPUT);
+  pinMode(blueLED, OUTPUT);
+}
+
+void loop(){
+  //initial messages
+  lcd.setCursor(13,0);//column 13; row 0
+  lcd.print("Welcome");//print on the lcd, first line
+  lcd.setCursor(0,1); //column 0 row 1
+  lcd.print("Press ON/C to log in");//print on the lcd, second line
+
+  key = customKeypad.getKey(); //defining a pressed key
+
+  //pass check
+  //if the password is introduced correctly, then the welcome message is printed, with a few instructions
+  //and the green led is on for 3 seconds
+  //if the password is incorrect, an incorrect mesage is displayed
+  //and the red led is on for 2 seconds 
+  if(key == '#' && locked == true){
+    if(!strcmp(checkPass(),pass)){
+      lcd.print("Welcome in the system");
+      lcd.setCursor(0,1);
+      lcd.print("ON/C to confirm = to go back");
+      digitalWrite(greenLED,HIGH);//green led on
+      delay(2000);
+      digitalWrite(greenLED,LOW);//green led off
+      locked = false;//protection off
+    }
+    else{
+      lcd.print("Incorrect password");
+      digitalWrite(redLED,HIGH);//red led on
+      delay(2000);
+      digitalWrite(redLED,LOW);//red led off
+      delay(500);
+      lcd.clear();
+    }
+  }
+
+  clearData();
+
+  //menu
+  //after the passwors was introduced correctly, the start screen pops up
+  //and we are able to navigate through it, selecting options as we like. 
+  if(locked == false){
+      if(welcome == true){
+        lcd.clear();
+        startScreen();
+        welcome = false;
+        //delay(2000);
+      }
+      if(welcome==false){
+        lcd.clear();
+        key = customKeypad.getKey();
+        if(mainScreen == true){
+        while(key!='#'){
+          startScreen();
+          optionSelect();
+          mainScreenP(choice);
+          Serial.println(choice);
+        }
+        delay(2000);
+        mainScreen = false;
+        }
+        
+        if(mainScreen == false){
+          mainScreen == true;
+          //lcd.clear();
+          if(choice == 1){
+            tempHeatInd();
+          }else
+            if(choice == 2){
+              printHum();
+            }else
+              if(choice == 3){
+                logOut();
+              }
+        }
+      }
+    }
+  }
+  
+//pass validation
+//we build an array with the keys pressed, untiul the '*' button is pressed
+//thus confirming the password
+//anytime a key is pressed, the blue led is turned on for 0.2s
+//when the confiramtion key is pressed, the red led is on for 0.2s
+int checkPass(){
+  lcd.clear();
+  lcd.print("Press = to confirm the password");
+  delay(1000);
+  lcd.clear();
+  lcd.print("User: Vakutz Alexandru");
+  lcd.setCursor(0,1);
+  lcd.print("Password: ");
+  int pos = 10;//set the column
+  while(data_count<33){
+  key = customKeypad.getKey();
+  if(key == '*'){
+    Serial.println(key);
+    digitalWrite(redLED,HIGH);
+    delay(200);
+    digitalWrite(redLED,LOW);
+    goto retMen; //jump to retMen label
+  }
+  if(key){
+    lcd.setCursor(pos,1);//write characters one after another
+    lcd.print('*');//print * so that the key reamins private
+    digitalWrite(blueLED,HIGH);
+    delay(200);
+    digitalWrite(blueLED,LOW);
+    data[data_count]=key; //add key to array
+    data_count++;
+    pos++;//next column
+    Serial.println(key);//debugging&testing purposes
+  }
+}
+  delay(1000);
+  lcd.clear();
+  return data;
+  
+retMen:
+  delay(1000);
+  lcd.clear();
+  return data;
+}
+
+//main menu with 3 options
+void startScreen(){
+  lcd.setCursor(0,0);
+  lcd.print("1.Temperature & Heat Index");
+  lcd.setCursor(0,1);
+  lcd.print("2.Humidty");
+  lcd.setCursor(14,1);
+  lcd.print("3.Log out");
+}
+
+//chossing an option
+//waiting for keypad input
+void optionSelect(){
+  key = customKeypad.getKey();
+
+  if(key == '1')
+    choice = 1;
+  else
+    if(key == '2')
+      choice = 2;
+      else
+        if(key=='3')
+          choice = 3;
+        else
+          choice = choice;
+}
+
+//main screen writting
+//based on the option chosen, the appropriate meniu version is displayed
+//'>' points the option selected
+void mainScreenP(int choice){
+  if(choice == 1){
+    lcd.setCursor(0,0);
+    lcd.print("> Temperature & Heat Index");
+    lcd.setCursor(0,1);
+    lcd.print("2.Humidty");
+    lcd.setCursor(14,1);
+    lcd.print("3.Log out");
+  }
+  else
+    if(choice == 2){
+      lcd.setCursor(0,0);
+      lcd.print("1.Temperature & Heat Index");
+      lcd.setCursor(0,1);
+      lcd.print("> Humidty");
+      lcd.setCursor(14,1);
+      lcd.print("3.Log out");
+    }
+    else
+      if(choice == 3){
+        lcd.setCursor(0,0);
+        lcd.print("1.Temperature & Heat Index");
+        lcd.setCursor(0,1);
+        lcd.print("2.Humidty");
+        lcd.setCursor(14,1);
+        lcd.print("> Log out");
+      }
+  
+}
+
+//reading data from dht11
+void readSensorData(){
+  hum = dht.readHumidity();
+  tempC = dht.readTemperature();// temperature in celsius
+  tempF = dht.readTemperature(true); //isFahrenheit=true
+  hiC = dht.computeHeatIndex(tempC, hum, false); //heat index in Celsius (isFahrenheit = false)
+  hiF = dht.computeHeatIndex(tempF,hum);
+}
+
+//display temp & heat indexes
+//displays a short set of instructions regarding the display placement of the data
+void tempHeatInd(){
+  readSensorData();//read data from dht
+  lcd.clear();
+  lcd.print("Column 1 -- Temperature C/F");
+  lcd.setCursor(0,1);
+  lcd.print("Column 2 -- Heat indexes C/F");
+  delay(1000);
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print(tempC);
+  lcd.setCursor(5,0);
+  lcd.print("C");
+  lcd.setCursor(0,1);
+  lcd.print(tempF);
+  lcd.setCursor(5,1);
+  lcd.print("F");
+  lcd.setCursor(9,0);
+  lcd.print(hiC);
+  lcd.setCursor(13,0);
+  lcd.print("C");
+  lcd.setCursor(9,1);
+  lcd.print(hiF);
+  lcd.setCursor(13,1);
+  lcd.print("F");
+  lcd.setCursor(20,0);
+  lcd.print(">Back");
+  goBack();
+}
+
+//displaying humidity
+void printHum(){
+  lcd.clear();
+  readSensorData();//read data from dht22
+  lcd.print("Humidity: ");
+  lcd.setCursor(11, 0);
+  lcd.print(hum);
+  lcd.setCursor(16,0);
+  lcd.print("%");
+  lcd.setCursor(0,1);
+  lcd.print(">Back");
+  Serial.println(hum);
+  goBack();
+}
+
+//logging out
+void logOut(){
+  lcd.clear();
+  lcd.print("Logging out...");
+  locked = true;//reset protection
+  choice = 0;//reset main menu option
+  mainScreen = true; //reset mainScreen animation
+  delay(2000);
+  lcd.clear();
+}
+
+//return
+void goBack(){
+     // key = customKeypad.getKey();
+      while(key!='*')
+      {
+          key = customKeypad.getKey();
+          if(key=='*')
+          {lcd.clear();
+          mainScreen=true;
+        }
+      }
+}
+
+//clearing pass data, and making the data array reusable
+void clearData(){
+  while(data_count !=0){
+  data[data_count--] = 0; 
+  }
+  return;
+}
